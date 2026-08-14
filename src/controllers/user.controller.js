@@ -4,6 +4,22 @@ import { ApiResponse } from "../utils/ApiResponse.utils.js"
 import { User } from "../models/user.model.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.utils.js"
 
+const generateAccessAndRefreshTokens = async(userId) => {
+    try {
+        const user = await User.findById(userId);
+        const accessToken = user.generateAccessToken();
+        const refreshToken = user.generateRefreshToken();
+
+        user.refreshToken = refreshToken;
+        await user.save({ validateBeforeSave: false });
+
+        return {accessToken, refreshToken};
+
+    } catch(err) {
+        throw new ApiError(500, "something went wrong while generating access and refresh tokens");
+    }
+}
+
 const registerUser = asyncHandler( async (req, res) => {
     const {fullname, email, username, password} = req.body;
 
@@ -11,7 +27,7 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new ApiError(400, "All fields are required");
     }
 
-    const existingUser = User.findOne({
+    const existingUser = await User.findOne({
         $or: [{username}, {email}]
     })
     
@@ -19,15 +35,27 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new ApiError(409, "User with email or username already exists");
     }
 
-    const avatarLocalPath = req.files?.avatar[0]?.path
-    const coverImageLocalPath = req.files?.coverImage[0]?.path
+    console.log("REQ.FILES:", req.files);
+    console.log("REQ.BODY:", req.body);
+
+    const avatarLocalPath = req.files?.avatar?.[0]?.path
+    const coverImageLocalPath = req.files?.coverImage?.[0]?.path
+
+    console.log("AVATAR LOCAL PATH:", avatarLocalPath);
+    console.log("COVER LOCAL PATH:", coverImageLocalPath);
 
     if(!avatarLocalPath){
         throw new ApiError(400, "Avatar file is required");
     }
 
     const avatar = await uploadOnCloudinary(avatarLocalPath);
-    const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+    // const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+
+    let coverImage = null;
+
+    if (coverImageLocalPath) {
+        coverImage = await uploadOnCloudinary(coverImageLocalPath);
+    }
     
     if(!avatar){
         throw new ApiError(400, "Avatar file is required");
@@ -54,6 +82,74 @@ const registerUser = asyncHandler( async (req, res) => {
         new ApiResponse(200, createdUser, "user registered successfully")
     );
 });
+
+const loginUser = asyncHandler( async (req, res) => {
+    const {email, username, password} = req.body;
+
+    if(!username || !email){
+        throw new ApiError(400, "username or email is required");
+    }
+    
+    const user = await User.findOne({
+        $or: [{username},{email}]
+    });
+
+    if(!user){
+        throw new ApiError(404, "user not found");
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password)
+
+    if(!isPasswordValid){
+        throw new ApiError(401, "invalid user credentials");
+    }
+
+    const {accessToken, refreshToken} = await generateAccessAndRefreshTokens(user._id);
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    }
+
+    return res.status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+        new ApiResponse(
+            200,
+            {
+                user: loggedInUser, accessToken, refreshToken
+            },
+            "user logged in successfully"
+        )
+    );
+})
+
+const logoutUser = asyncHandler(async(req, res) => {
+    const userId = req.user._id;
+    await User.findByIdAndUpdate(userId,
+        {
+            $set: {
+                refreshToken: undefined
+            }
+        },
+        {
+            new: true
+        }
+    )
+    
+    const options = {
+        httpOnly: true,
+        secure: true,
+    }
+
+    return res.status(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, {}, "User logged out"));
+})
 
 export {
     registerUser,
