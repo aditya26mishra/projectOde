@@ -4,7 +4,6 @@ import { ApiResponse } from "../utils/ApiResponse.utils.js"
 import { User } from "../models/user.model.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.utils.js"
 import jwt, { decode } from "jsonwebtoken"
-import { use } from "react";
 import mongoose from "mongoose";
 
 const generateAccessAndRefreshTokens = async(userId) => {
@@ -38,14 +37,14 @@ const registerUser = asyncHandler( async (req, res) => {
         throw new ApiError(409, "User with email or username already exists");
     }
 
-    console.log("REQ.FILES:", req.files);
-    console.log("REQ.BODY:", req.body);
+    // console.log("REQ.FILES:", req.files);
+    // console.log("REQ.BODY:", req.body);
 
     const avatarLocalPath = req.files?.avatar?.[0]?.path
     const coverImageLocalPath = req.files?.coverImage?.[0]?.path
 
-    console.log("AVATAR LOCAL PATH:", avatarLocalPath);
-    console.log("COVER LOCAL PATH:", coverImageLocalPath);
+    // console.log("AVATAR LOCAL PATH:", avatarLocalPath);
+    // console.log("COVER LOCAL PATH:", coverImageLocalPath);
 
     if(!avatarLocalPath){
         throw new ApiError(400, "Avatar file is required");
@@ -142,8 +141,8 @@ const logoutUser = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     await User.findByIdAndUpdate(userId,
         {
-            $set: {
-                refreshToken: undefined
+            $unset: {
+                refreshToken: 1
             }
         },
         {
@@ -227,7 +226,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, req.user, "current user fetched successfully"));
 })
 
-const updateAccountDetails = asyncHandler(async (res, res) => {
+const updateAccountDetails = asyncHandler(async (req, res) => {
     const {fullname, email, username} = req.body;
 
     if(!fullname || !email || !username){
